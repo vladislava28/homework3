@@ -1,0 +1,50 @@
+- name: Подготовка второго инстанса для логической репликации
+  hosts: replica
+  become: true
+
+  tasks:
+    - name: Создать папку для второго инстанса
+      file:
+        path: /pg_data/16-one-base
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: '0700'
+
+    - name: Инициализировать кластер во второй папке
+      command: /usr/lib/postgresql/16/bin/initdb -D /pg_data/16-one-base
+      become_user: postgres
+      become: true
+      args:
+        creates: /pg_data/16-one-base/PG_VERSION
+
+    - name: Изменить порт в конфиге на 5433
+      lineinfile:
+        path: /pg_data/16-one-base/postgresql.conf
+        regexp: '^#?port'
+        line: "port = 5433"
+
+    - name: Добавить настройки для логической репликации
+      lineinfile:
+        path: /pg_data/16-one-base/postgresql.conf
+        line: "{{ item }}"
+      loop:
+        - "wal_level = logical"
+        - "max_replication_slots = 10"
+        - "max_logical_replication_workers = 10"
+        - "max_worker_processes = 20"
+
+    - name: Убить процессы второго инстанса (если есть)
+      command: pkill -u postgres -f postgres
+      become: true
+      ignore_errors: yes
+      failed_when: false
+
+    - name: Запустить второй инстанс на порту 5433
+      command: /usr/lib/postgresql/16/bin/pg_ctl -D /pg_data/16-one-base start
+      become_user: postgres
+      become: true
+      register: pg_start
+      failed_when:
+        - pg_start.rc != 0
+        - "'server is already running' not in pg_start.stderr"

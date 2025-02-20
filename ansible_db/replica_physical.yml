@@ -1,0 +1,48 @@
+- name: Настройка физической реплики на второй виртуалке
+  hosts: replica
+  become: true
+
+  tasks:
+    - name: Остановить стандартный сервер PostgreSQL
+      systemd:
+        name: postgresql@16-main
+        state: stopped
+        enabled: no
+      become: true
+      ignore_errors: yes
+
+    - name: Очистить папку с данными
+      file:
+        path: /pg_data/16
+        state: absent
+      become: true
+
+    - name: Создать чистую папку заново
+      file:
+        path: /pg_data/16
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: '0700'
+      become: true
+
+    - name: Выполнить pg_basebackup с мастера
+      command: |
+        /usr/lib/postgresql/16/bin/pg_basebackup \
+          -h {{ hostvars['master']['ansible_host'] }} \
+          -U replica_user \
+          -D /pg_data/16 \
+          -P -X stream -R
+      become_user: postgres
+      become: true
+      environment:
+        PGPASSWORD: "12345678"
+
+    - name: Запустить PostgreSQL как реплику
+      command: /usr/lib/postgresql/16/bin/pg_ctl -D /pg_data/16 start
+      become_user: postgres
+      become: true
+      register: pg_start
+      failed_when:
+        - pg_start.rc != 0
+        - "'server is already running' not in pg_start.stderr"

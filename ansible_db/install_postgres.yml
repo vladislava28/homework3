@@ -1,0 +1,71 @@
+- name: Установка Postgres
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Добавить ключ репозитория PostgreSQL
+      ansible.builtin.get_url:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        dest: /etc/apt/trusted.gpg.d/postgresql.asc
+        mode: '0644'
+
+    - name: Добавить репозиторий PostgreSQL
+      apt_repository:
+        repo: "deb http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
+        state: present
+        update_cache: yes
+
+    - name: Обновление пакетов
+      apt:
+        update_cache: yes
+
+    - name: Установка PostgreSQL 16
+      apt:
+        name:
+          - postgresql-16
+          - postgresql-contrib-16
+        state: present
+
+    - name: Назначить владельца /pg_data
+      file:
+        path: /pg_data
+        owner: postgres
+        group: postgres
+        state: directory
+
+    - name: Инициализация кластера в /pg_data/16
+      command:
+        cmd: /usr/lib/postgresql/16/bin/initdb -D /pg_data/16
+      become_user: postgres
+      become: true
+      args:
+        creates: /pg_data/16/PG_VERSION
+
+    - name: Остановить стандартный сервер PostgreSQL
+      systemd:
+        name: postgresql@16-main
+        state: stopped
+        enabled: no
+      become: true
+      ignore_errors: yes
+
+    - name: Убить процессы postgres
+      command: pkill -u postgres -f postgres
+      become: true
+      ignore_errors: yes
+
+    - name: Запустить PostgreSQL с правильной папкой
+      command: /usr/lib/postgresql/16/bin/pg_ctl -D /pg_data/16 start
+      become_user: postgres
+      become: true
+      register: pg_start
+      failed_when:
+        - pg_start.rc != 0
+        - "'server is already running' not in pg_start.stderr"
+
+    - name: Установить psycopg2 для работы с PostgreSQL
+      apt:
+        name: python3-psycopg2
+        state: present
+      become: true
+

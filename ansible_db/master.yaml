@@ -1,0 +1,76 @@
+- name: Работа на master-машине
+  hosts: master
+  become: true
+
+  tasks:
+    - name: Создание пользователя pgbench
+      community.postgresql.postgresql_user:
+        name: pgbench
+        password: "12345678"
+        role_attr_flags: LOGIN
+        state: present
+      become: true
+      become_user: postgres
+
+    - name: Создать бд bench
+      community.postgresql.postgresql_db:
+        name: bench
+        owner: pgbench
+        state: present
+      become: true
+      become_user: postgres
+
+    - name: Добавить pg_stat_statements в конфиге
+      lineinfile:
+        path: /pg_data/16/postgresql.conf
+        regexp: '^#?shared_preload_libraries'
+        line: "shared_preload_libraries = 'pg_stat_statements'"
+      notify: restart postgresql
+
+    - name: Логирование всех запросов
+      lineinfile:
+        path: /pg_data/16/postgresql.conf
+        regexp: '^#?log_statement'
+        line: "log_statement = 'all'"
+      notify: restart postgresql
+
+    - name: Включить сборщик логов
+      lineinfile:
+        path: /pg_data/16/postgresql.conf
+        regexp: '^#?logging_collector'
+        line: "logging_collector = on"
+      notify: restart postgresql
+
+    - name: Настроить директорию логов
+      lineinfile:
+        path: /pg_data/16/postgresql.conf
+        regexp: '^#?log_directory'
+        line: "log_directory = 'log'"
+      notify: restart postgresql
+
+
+    - name: Создание пользователя для репликации
+      community.postgresql.postgresql_user:
+        name: replica_user
+        password: "12345678"
+        role_attr_flags: REPLICATION
+        state: present
+      become: true
+      become_user: postgres
+
+    - name: Создать расширение pg_stat_statements в базе bench
+      command: psql -U postgres -d bench -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+      become_user: postgres
+      become: true
+
+    - name: Добавить доступ для репликации
+      lineinfile:
+        path: /pg_data/16/pg_hba.conf
+        line: "host    replication     repl_user       {{ hostvars['replica']['ansible_host'] }}/32        md5"
+      notify: restart postgresql
+
+  handlers:
+    - name: restart postgresql
+      systemd:
+        name: postgresql@16-main
+        state: restarted

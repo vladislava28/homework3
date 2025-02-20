@@ -1,0 +1,37 @@
+- name: Подготовка /pg_data
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Проверить существование /dev/sdb
+      stat:
+        path: /dev/sdb
+      register: disk_stat
+
+    - name: Остановиться, если диска нет
+      fail:
+        msg: "Диск /dev/sdb не найден!"
+      when: not disk_stat.stat.exists
+
+    - name: Форматирование /dev/sdb
+      filesystem:
+        fstype: ext4
+        dev: /dev/sdb
+
+    - name: Создание /pg_data
+      file:
+        path: /pg_data
+        mode: '0755'
+        state: directory
+
+    - name: Монтирование /dev/sdb в /pg_data
+      mount:
+        path: /pg_data
+        src: /dev/sdb
+        fstype: ext4
+        opts: defaults
+        state: mounted
+
+
+
+

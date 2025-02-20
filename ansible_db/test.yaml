@@ -1,0 +1,50 @@
+- name: Нагрузочное тестирование pgbench
+  hosts: master
+  become: true
+
+  tasks:
+    - name: Инициализация тестовых данных pgbench
+      command:
+        cmd: pgbench -i -U pgbench -h localhost bench
+      environment:
+        PGPASSWORD: "12345678"
+      register: pgbench_init_result
+
+    - name: Запуск нагрузочного теста
+      command: pgbench -c 10 -T 60 -U pgbench -h localhost bench
+      environment:
+        PGPASSWORD: "12345678"
+      register: pgbench_test
+      ignore_errors: yes
+
+    - name: Показать результаты теста
+      debug:
+        var: pgbench_test.stdout_lines
+
+    - name: Топ запросов по IO time write
+      command: psql -U postgres -d bench -c "SELECT query, blk_write_time FROM pg_stat_statements ORDER BY blk_write_time DESC LIMIT 3;"
+      become_user: postgres
+      register: io_queries
+
+    - name: Топ запросов по execution time
+      command: psql -U postgres -d bench -c "SELECT query, total_exec_time FROM pg_stat_statements ORDER BY total_exec_time DESC"
+      become_user: postgres
+      register: time_queries
+
+    - name: Вывод топ запросов
+      debug:
+        msg:
+          - "=== IO WRITE TIME ==="
+          - "{{ io_queries.stdout_lines }}"
+          - "=== EXECUTION TIME ==="
+          - "{{ time_queries.stdout_lines }}"
+
+    - name: Получить логи PostgreSQL
+      command: tail -n 20 /pg_data/16/log/postgresql-*.log
+      become_user: postgres
+      register: pg_logs
+      ignore_errors: yes
+
+    - name: Показать логи
+      debug:
+        var: pg_logs.stdout_lines
