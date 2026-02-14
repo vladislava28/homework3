@@ -1,0 +1,70 @@
+---
+- name: Setup nginx with autoindex
+  hosts: webservers
+  become: yes
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Create directory for files
+      file:
+        path: /var/www/files
+        state: directory
+        mode: '0755'
+
+    - name: Create files
+      copy:
+        content: "Ansible! File {{ item }}"
+        dest: "/var/www/files/test{{ item }}.txt"
+      loop:
+        - 1
+        - 2
+        - 3
+        - 4
+
+    - name: Remove default nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Configure nginx site with autoindex
+      copy:
+        dest: /etc/nginx/sites-available/files
+        content: |
+          server {
+              listen 80;
+              server_name _;
+
+              location /files {
+                  alias /var/www/files;
+                  autoindex on;
+              }
+          }
+
+    - name: New link
+      file:
+        src: /etc/nginx/sites-available/files
+        dest: /etc/nginx/sites-enabled/files
+        state: link
+
+    - name: Change nginx port
+      nginx_port:
+        port: 8081
+      register: port_result
+
+    - name: Show port change result
+      debug:
+        msg: "{{ port_result.msg }}"
+
+    - name: Reload nginx
+      systemd:
+        name: nginx
+        state: reloaded
